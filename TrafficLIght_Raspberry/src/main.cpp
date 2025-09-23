@@ -10,6 +10,7 @@ public:
         pinMode(pin_, OUTPUT);
     }
 
+public:
     void on() {
         digitalWrite(pin_, HIGH);
         state_ = true;
@@ -38,25 +39,26 @@ private:
 public:
     LedController(Led* leds, int count) : leds_(leds), count_(count) {}
 
-    void trafficLight(int redTime, int yellowTime, int greenTime, int blinkTime) {
+public:
+    void trafficLightCycle(int redTime, int yellowTime, int greenTime, int blinkTime) {
         enum { RED = 0, YELLOW, GREEN };
 
-        // red
+        // красный
         leds_[RED].on();
         delay(redTime);
         leds_[RED].off();
-        blink(RED, 5, blinkTime);
+        blink(RED, 4, blinkTime);
 
-        // yellow
+        // жёлтый
         leds_[YELLOW].on();
         delay(yellowTime);
         leds_[YELLOW].off();
 
-        //green
+        // зелёный
         leds_[GREEN].on();
         delay(greenTime);
         leds_[GREEN].off();
-        blink(GREEN, 5, blinkTime);
+        blink(GREEN, 4, blinkTime);
     }
 
 private:
@@ -70,7 +72,7 @@ private:
     }
 };
 
-Led leds[] = { Led(13), Led(12), Led(11) };
+Led leds[] = { Led(2), Led(3), Led(4) };
 LedController controller(leds, 3);
 
 void setup() {
@@ -78,6 +80,6 @@ void setup() {
 }
 
 void loop() {
-    controller.trafficLight(6000, 2000, 6000, 400);
+    controller.trafficLightCycle(6000, 2000, 6000, 400);
     delay(200);
 }

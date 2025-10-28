@@ -1,0 +1,34 @@
+#include <Arduino.h>
+#include <Wire.h>
+
+#define I2C_SDA 4
+#define I2C_SCL 5
+
+void setup() {
+  Serial.begin(115200);
+  Wire.setSDA(I2C_SDA);
+  Wire.setSCL(I2C_SCL);
+  Wire.begin();
+  Serial.println("🔍 I2C Scanner running...");
+}
+
+void loop() {
+  byte error, address;
+  int nDevices = 0;
+
+  Serial.println("Scanning...");
+  for (address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+    if (error == 0) {
+      Serial.printf("✅ Found I2C device at 0x%02X\n", address);
+      nDevices++;
+    }
+  }
+  if (nDevices == 0)
+    Serial.println("❌ No I2C devices found\n");
+  else
+    Serial.println("✅ Scan done\n");
+
+  delay(3000);
+}

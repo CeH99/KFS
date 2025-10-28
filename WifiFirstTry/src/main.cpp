@@ -1,82 +1,115 @@
 #include <Arduino.h>
 #include <WebServer.h>
+#include <Wire.h>
+#include <WiFi.h>
 
-const char* ssid = "molniya1";       // имя Wi-Fi
-const char* password = "140578875041"; // пароль Wi-Fi
+#define DEBUG
+
+const char* ssid = "IPZE";
+const char* password = "IPZE WIFI Password";
 
 WebServer server(80);
 
-bool ledState = false;
-const int ledPin = 5; // встроенный светодиод Pico W
+#define I2C_SDA 4
+#define I2C_SCL 5
+#define ARDUINO_ADDR 0x08
+#define WIFI_RETRY_INTERVAL 5000
 
-// Генерация HTML
+unsigned long lastWiFiCheck = 0;
+
+// ====== HTML Page ======
 String htmlPage() {
-  String state = ledState ? "ON" : "OFF";
-  String color = ledState ? "red" : "green";
-
   String page = "<!DOCTYPE html><html><head><meta charset='utf-8'>";
-  page += "<title>Pico W LED</title></head><body style='text-align:center;'>";
-  page += "<h1>Raspberry Pi Pico W</h1>";
-  page += "<h2>LED is " + state + "</h2>";
-  page += "<form action='/toggle'><button style='padding:20px;font-size:24px;background:" 
-          + color 
-          + ";color:white;border:none;border-radius:12px;'>Toggle LED</button></form>";
+  page += "<title>Servo Control</title></head>";
+  page += "<body style='text-align:center;font-family:sans-serif'>";
+  page += "<h1>Pico W → Arduino</h1>";
+  page += "<p>Press a button to send a command via I2C</p>";
+  page += "<form action='/left'><button style='padding:20px 40px;font-size:22px;background:blue;color:white;border:none;border-radius:12px;'>⬅ Left</button></form><br>";
+  page += "<form action='/right'><button style='padding:20px 40px;font-size:22px;background:green;color:white;border:none;border-radius:12px;'>Right ➡</button></form>";
   page += "</body></html>";
   return page;
 }
 
-// Главная
+// ======================= I2C Command =========================
+bool sendCommand(char cmd) {
+  Wire.beginTransmission(ARDUINO_ADDR);
+  Wire.write(cmd);
+  byte err = Wire.endTransmission();
+#ifdef DEBUG
+  Serial.printf("Sent %c, I2C result = %d\n", cmd, err); //! 0 = OK
+#endif
+  return (err == 0);
+}
+
+// ============================Web Handlers =======================
 void handleRoot() {
   server.send(200, "text/html", htmlPage());
 }
 
-// Переключение
-void handleToggle() {
-  ledState = !ledState;
-  digitalWrite(ledPin, ledState ? HIGH : LOW);
+void handleLeft() {
+  sendCommand('L');
   server.send(200, "text/html", htmlPage());
 }
 
-void setup() {
-  Serial.begin(115200);
-  delay(2000);
-
-  Serial.println("🚀 Запуск...");
-
-  WiFi.begin(ssid, password);
-
-  Serial.print("⏳ Подключение к Wi-Fi: ");
-  Serial.println(ssid);
-
-  int retries = 0;
-  while (WiFi.status() != WL_CONNECTED && retries < 20) { // ждём макс 10 секунд
-    delay(500);
-    Serial.print(".");
-    retries++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n✅ Wi-Fi подключен!");
-    Serial.print("📡 IP адрес: ");
-    Serial.println(WiFi.localIP());
-
-    // 👉 Регистрируем обработчики
-    server.on("/", handleRoot);
-    server.on("/toggle", handleToggle);
-
-    // 👉 Запускаем веб-сервер
-    server.begin();
-    Serial.println("🌍 Веб-сервер запущен!");
-  } else {
-    Serial.println("\n❌ Не удалось подключиться к Wi-Fi!");
-  }
-
-  pinMode(ledPin, OUTPUT); // не забудь инициализировать пин светодиода
-  digitalWrite(ledPin, LOW);
+void handleRight() {
+  sendCommand('R');
+  server.send(200, "text/html", htmlPage());
 }
 
+// ======================== Wi-Fi Handling ====================
+void ensureWiFi() {
+  if (WiFi.status() != WL_CONNECTED) {
+    unsigned long now = millis();
+    if (now - lastWiFiCheck >= WIFI_RETRY_INTERVAL) {
+#ifdef DEBUG
+      Serial.println("Reconnecting to WiFi...");
+#endif
+      WiFi.disconnect();
+      WiFi.begin(ssid, password);
+      lastWiFiCheck = now;
+    }
+  }
+}
 
+// ====== ===================Setup ============================
+void setup() {
+#ifdef DEBUG
+  Serial.begin(9600);
+  delay(500);
+  Serial.println("Pico W I2C Master starting...");
+#endif
 
+  WiFi.begin(ssid, password);
+#ifdef DEBUG
+  Serial.print("Connecting to WiFi...");
+#endif
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+#ifdef DEBUG
+    Serial.print(".");
+#endif
+  }
+#ifdef DEBUG
+  Serial.println("\nWiFi connected!");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
+#endif
+
+  server.on("/", handleRoot);
+  server.on("/left", handleLeft);
+  server.on("/right", handleRight);
+  server.begin();
+
+  Wire.setSDA(I2C_SDA);
+  Wire.setSCL(I2C_SCL);
+  Wire.begin();
+#ifdef DEBUG
+  Serial.println("I2C ready");
+#endif
+}
+
+// ============================== Loop =====================
 void loop() {
   server.handleClient();
+  ensureWiFi();
 }

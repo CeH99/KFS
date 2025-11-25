@@ -1,0 +1,125 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WebServer.h>
+
+// --- WIFI CONFIG ---
+const char* ssid = "molniya1";
+const char* password = "140578875041";
+
+// --- PINS ---
+const int PIN_SOLAR_VOLT = 26; // Solar Panel Voltage (Pot 1)
+const int PIN_SOLAR_CURR = 27; // Solar Panel Current (Pot 2)
+const int PIN_LDR = 28;        // Light Sensor
+const int LED = 15;            // Street Lamp
+
+// --- MPPT VARS ---
+float dutyCycle = 0.5;   [cite_start]// [cite: 6]
+float stepSize = 0.05;   // PWM Step
+float prevPower = 0;     [cite_start]// [cite: 8]
+float prevVoltage = 0;   [cite_start]// [cite: 8]
+
+WebServer server(80);
+
+// Display Variables
+float solarVoltage = 0;
+float solarCurrent = 0;
+float solarPower = 0;
+int lightLevel = 0;
+String lampStatus = "OFF";
+
+// Web Handler
+void handleRoot() {
+  String html = "<!DOCTYPE html><html><head>";
+  html += "<meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1'>";
+  html += "<meta http-equiv='refresh' content='1'>";
+  html += "<style>body{font-family: sans-serif; text-align: center; background: #222; color: #fff;}";
+  html += ".box{border: 1px solid #555; margin: 10px; padding: 10px; border-radius: 8px;}";
+  html += "h2{color: #ffcc00;} .val{color: #00ccff; font-weight: bold; font-size: 1.2em;}";
+  html += "</style></head><body>";
+  
+  html += "<h1>☀️ Solar Street Light 🌙</h1>";
+  
+  // MPPT Section
+  html += "<div class='box'><h2>🔋 MPPT Charging</h2>";
+  html += "Solar V: <span class='val'>" + String(solarVoltage, 1) + " V</span><br>";
+  html += "Solar I: <span class='val'>" + String(solarCurrent, 2) + " A</span><br>";
+  html += "Power: <span class='val'>" + String(solarPower, 1) + " W</span><br>";
+  html += "MPPT Efficiency (Duty): <span class='val'>" + String(dutyCycle * 100, 0) + "%</span>";
+  html += "</div>";
+
+  // Light Control Section
+  html += "<div class='box'><h2>💡 Street Control</h2>";
+  html += "Light Sensor: " + String(lightLevel) + "<br>";
+  html += "Lamp Status: <b style='color:" + String(lampStatus == "ON" ? "lime" : "red") + "'>" + lampStatus + "</b>";
+  html += "</div>";
+  
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED, OUTPUT);
+  analogReadResolution(12); 
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+  Serial.println(WiFi.localIP());
+
+  server.on("/", handleRoot);
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+
+  // 1. Read Sensors
+  int rawV = analogRead(PIN_SOLAR_VOLT);
+  int rawI = analogRead(PIN_SOLAR_CURR);
+  lightLevel = analogRead(PIN_LDR);
+
+  // Convert to real values
+  float voltage = (rawV / 4095.0) * 50.0; [cite_start]// Scale to 50V [cite: 16]
+  float current = (rawI / 4095.0) * 10.0; [cite_start]// Scale to 10A [cite: 17]
+  float power = voltage * current;        [cite_start]// [cite: 18]
+
+  // 2. MPPT Algorithm (P&O)
+  if (power > prevPower) {
+      if (voltage > prevVoltage) {
+          dutyCycle += stepSize; [cite_start]// [cite: 22]
+      } else {
+          dutyCycle -= stepSize; [cite_start]// [cite: 24]
+      }
+  } else {
+      if (voltage > prevVoltage) {
+          dutyCycle -= stepSize; [cite_start]// [cite: 28]
+      } else {
+          dutyCycle += stepSize; [cite_start]// [cite: 30]
+      }
+  }
+
+  [cite_start]// Limit Duty Cycle [cite: 34-35]
+  if (dutyCycle > 1.0) dutyCycle = 1.0;
+  if (dutyCycle < 0.0) dutyCycle = 0.0;
+
+  [cite_start]// Save History [cite: 43-44]
+  prevPower = power;
+  prevVoltage = voltage;
+  
+  // Update Display Vars
+  solarVoltage = voltage;
+  solarCurrent = current;
+  solarPower = power;
+
+  // 3. Light Control Logic
+  // Dark (< 1500) -> ON; Light -> OFF (Charging)
+  if (lightLevel < 1500) { 
+    digitalWrite(LED, HIGH);
+    lampStatus = "ON";
+  } else {
+    digitalWrite(LED, LOW);
+    lampStatus = "OFF (Charging...)";
+  }
+
+  delay(100);
+}
